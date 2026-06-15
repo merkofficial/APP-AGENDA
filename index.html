@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestionale Aziendale Cloud</title>
+    <title>Gestionale Aziendale - Definitivo</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -16,7 +16,6 @@
         }
     </script>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-grigioScuro text-gray-300 font-sans min-h-screen relative pb-16">
 
@@ -234,6 +233,13 @@
                             <input type="text" id="inputSpesaCausale" placeholder="Motivo spesa..." class="w-full bg-grigioMedio border border-grigioChiaro rounded p-2 text-white focus:outline-none focus:border-green-400">
                         </div>
                     </div>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1 flex justify-between">
+                            <span>Allega Scontrino</span>
+                            <span class="text-gray-500 italic text-[10px]">*Solo nome in Demo</span>
+                        </label>
+                        <input type="file" id="inputSpesaFoto" accept="image/*" class="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-grigioChiaro file:text-white hover:file:bg-gray-600">
+                    </div>
                 </div>
                 
                 <div class="flex gap-2 mt-4">
@@ -263,15 +269,15 @@
     </div>
 
     <script>
-        // --- INSERISCI QUI I TUOI DATI DI SUPABASE ---
-        const SUPABASE_URL = 'https://dcxzsnlparofurcszecq.supabase.co/rest/v1/'; 
-        const SUPABASE_KEY = 'sb_publishable_Sjp4OseO4V3RyxAleZuABQ_8wkKOHx5';
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        // --- 1. GESTIONE DATI E AUTENTICAZIONE ---
+        let utentiRegistrati = JSON.parse(localStorage.getItem('utentiRegistrati')) || [
+            { nome: 'admin', pin: 'admin', ruolo: 'admin' },
+            { nome: 'Marco Fabbri', pin: '1234', ruolo: 'dipendente' },
+            { nome: 'Luca Verdi', pin: '1234', ruolo: 'dipendente' }
+        ];
 
-        // Variabili Globali
-        let utentiRegistrati = [];
-        let lavoriSalvati = [];
-        let mesiBloccati = []; 
+        let lavoriSalvati = JSON.parse(localStorage.getItem('lavoriSalvati')) || [];
+        let mesiBloccati = JSON.parse(localStorage.getItem('mesiBloccati')) || []; 
 
         let utenteLoggato = null; 
         let ruoloLoggato = null;
@@ -281,51 +287,17 @@
         let annoAttuale = new Date().getFullYear();
         let dataAttualmenteSelezionata = "";
 
+        // Variabili per la modalità ferie multiple
         let modalitaSelezioneFerie = false;
         let giorniSelezionatiFerie = [];
 
-        // --- FUNZIONI DI CARICAMENTO DA SUPABASE ---
-        async function caricaUtenti() {
-            const { data, error } = await supabase.from('utenti').select('*');
-            if (data) utentiRegistrati = data;
+        function salvaDatiNelBrowser() {
+            localStorage.setItem('utentiRegistrati', JSON.stringify(utentiRegistrati));
+            localStorage.setItem('lavoriSalvati', JSON.stringify(lavoriSalvati));
+            localStorage.setItem('mesiBloccati', JSON.stringify(mesiBloccati));
         }
 
-        async function caricaMesiBloccati() {
-            const { data } = await supabase.from('mesi_bloccati').select('*');
-            if (data) mesiBloccati = data.map(m => m.mese);
-        }
-
-        async function caricaLavori() {
-            const { data } = await supabase.from('lavori').select('*');
-            if (data) {
-                // Mappiamo i dati dal database ai nomi delle variabili JavaScript che usiamo
-                lavoriSalvati = data.map(row => ({
-                    id: Number(row.id),
-                    data: row.data,
-                    dipendente: row.dipendente,
-                    tipo: row.tipo,
-                    cantiere: row.cantiere,
-                    oreMattina: row.ore_mattina,
-                    orePomeriggio: row.ore_pomeriggio,
-                    note: row.note,
-                    spesaImporto: row.spesa_importo,
-                    spesaCausale: row.spesa_causale,
-                    spesaFotoFile: row.spesa_foto_file
-                }));
-            }
-        }
-
-        // --- SISTEMA DI AVVIO E LOGIN ---
-        window.onload = async () => {
-            if (SUPABASE_URL.includes('INSERISCI_QUI')) {
-                alert("⚠️ Errore: Inserisci il tuo URL e la tua KEY di Supabase alle righe 364 e 365 del codice!");
-                return;
-            }
-            await caricaUtenti();
-            await caricaMesiBloccati();
-            popolaSelectLogin();
-        };
-
+        // --- SISTEMA DI LOGIN REALE ---
         function popolaSelectLogin() {
             const select = document.getElementById('loginUtente');
             select.innerHTML = '<option value="" disabled selected>Seleziona chi sei...</option>';
@@ -335,7 +307,7 @@
             });
         }
 
-        document.getElementById('formLogin').addEventListener('submit', async (e) => {
+        document.getElementById('formLogin').addEventListener('submit', (e) => {
             e.preventDefault();
             const nomeInserito = document.getElementById('loginUtente').value;
             const pinInserito = document.getElementById('loginPin').value;
@@ -343,13 +315,13 @@
             
             if (utenteTrovato) {
                 document.getElementById('erroreLogin').classList.add('hidden');
-                await effettuaLogin(utenteTrovato);
+                effettuaLogin(utenteTrovato);
             } else {
                 document.getElementById('erroreLogin').classList.remove('hidden');
             }
         });
 
-        async function effettuaLogin(utente) {
+        function effettuaLogin(utente) {
             utenteLoggato = utente.nome;
             ruoloLoggato = utente.ruolo;
             document.getElementById('schermataLogin').classList.add('hidden');
@@ -357,7 +329,6 @@
             document.getElementById('nomeUtenteHeader').innerText = utente.nome;
             document.getElementById('loginPin').value = ''; 
             configuraInterfacciaRuolo();
-            await caricaLavori(); // Carichiamo i lavori solo dopo il login
             inizializzaCalendario();
         }
 
@@ -411,17 +382,14 @@
             filtroAdminUI.value = filtroSelezionatoAdmin;
         }
 
-        document.getElementById('formDipendente').addEventListener('submit', async (e) => {
+        document.getElementById('formDipendente').addEventListener('submit', (e) => {
             e.preventDefault();
             const nome = document.getElementById('inputNuovoDipendente').value.trim();
             const pin = document.getElementById('inputNuovoPin').value.trim();
             if(nome && pin && !utentiRegistrati.find(u => u.nome === nome)) {
-                await supabase.from('utenti').insert([{ nome: nome, pin: pin, ruolo: 'dipendente' }]);
-                await caricaUtenti(); 
-                aggiornaListeDipendentiAdmin(); 
-                popolaSelectLogin();
-                document.getElementById('formDipendente').reset(); 
-                creaGriglia(meseAttuale, annoAttuale);
+                utentiRegistrati.push({ nome: nome, pin: pin, ruolo: 'dipendente' });
+                salvaDatiNelBrowser(); aggiornaListeDipendentiAdmin(); popolaSelectLogin();
+                document.getElementById('formDipendente').reset(); creaGriglia(meseAttuale, annoAttuale);
             } else { alert("Nome non valido o utente già esistente."); }
         });
 
@@ -435,17 +403,11 @@
         function getMeseCorrenteString() { return `${annoAttuale}-${String(meseAttuale + 1).padStart(2, '0')}`; }
         function isMeseBloccato() { return mesiBloccati.includes(getMeseCorrenteString()); }
 
-        async function toggleBloccoMese() {
+        function toggleBloccoMese() {
             const str = getMeseCorrenteString();
-            if (isMeseBloccato()) { 
-                await supabase.from('mesi_bloccati').delete().eq('mese', str);
-            } else { 
-                if(confirm("Bloccare questo mese? I dipendenti non potranno più modificare dati.")) {
-                    await supabase.from('mesi_bloccati').insert([{ mese: str }]);
-                }
-            }
-            await caricaMesiBloccati();
-            aggiornaStatoBloccoUI();
+            if (isMeseBloccato()) { mesiBloccati = mesiBloccati.filter(m => m !== str); } 
+            else { if(confirm("Bloccare questo mese? I dipendenti non potranno più modificare dati.")) mesiBloccati.push(str); }
+            salvaDatiNelBrowser(); aggiornaStatoBloccoUI();
         }
 
         function aggiornaStatoBloccoUI() {
@@ -494,31 +456,31 @@
             document.getElementById('modalFerieMulti').classList.add('hidden');
         }
 
-        document.getElementById('formFerieMulti').addEventListener('submit', async (e) => {
+        document.getElementById('formFerieMulti').addEventListener('submit', (e) => {
             e.preventDefault();
             const dipendenteScelto = document.getElementById('inputDipendenteFerieMulti').value;
-            const quantitaGiorni = giorniSelezionatiFerie.length;
-            if(!dipendenteScelto || quantitaGiorni === 0) return;
+            if(!dipendenteScelto) return;
 
-            const records = giorniSelezionatiFerie.map((dataSelezionata, index) => ({
-                id: Date.now() + index + Math.floor(Math.random() * 1000),
-                data: dataSelezionata,
-                dipendente: dipendenteScelto,
-                tipo: 'ferie',
-                cantiere: '🌴 Ferie Programmate',
-                ore_mattina: "4",
-                ore_pomeriggio: "4",
-                note: "Inserimento batch admin",
-                spesa_importo: "", spesa_causale: "", spesa_foto_file: ""
-            }));
+            giorniSelezionatiFerie.forEach((dataSelezionata, index) => {
+                const nuovoRecord = {
+                    id: Date.now() + index + Math.floor(Math.random() * 1000), // ID univoco
+                    data: dataSelezionata,
+                    dipendente: dipendenteScelto,
+                    tipo: 'ferie',
+                    cantiere: '🌴 Ferie Programmate',
+                    oreMattina: "4",
+                    orePomeriggio: "4",
+                    note: "Inserimento batch admin",
+                    spesaImporto: "", spesaCausale: "", spesaFotoFile: ""
+                };
+                lavoriSalvati.push(nuovoRecord);
+            });
 
-            await supabase.from('lavori').insert(records);
-            await caricaLavori();
-
+            salvaDatiNelBrowser();
             chiudiModalFerieMulti();
             annullaProgrammazioneFerie(); 
             creaGriglia(meseAttuale, annoAttuale);
-            alert(`Ferie assegnate con successo a ${dipendenteScelto} per ${quantitaGiorni} giorni.`);
+            alert(`Ferie assegnate con successo a ${dipendenteScelto} per ${giorniSelezionatiFerie.length} giorni.`);
         });
 
         // --- CALENDARIO E GRIGLIA ---
@@ -605,6 +567,7 @@
 
                 let classiGiorno = `p-3 rounded-lg cursor-pointer transition flex flex-col items-center justify-center border-2 `;
                 
+                // Gestione Visiva Modalità Selezione Ferie Multipla
                 if (modalitaSelezioneFerie && giorniSelezionatiFerie.includes(dataCicloString)) {
                     classiGiorno += `bg-blue-900 border-blue-400 ring-4 ring-blue-500 `;
                 } else {
@@ -634,25 +597,29 @@
 
         // --- CLICK SUL GIORNO E TABELLA ---
         function clickGiorno(dataSelezionata) {
+            // Se siamo in modalità selezione ferie, intercettiamo il click
             if (modalitaSelezioneFerie) {
                 const el = document.getElementById(`giorno-${dataSelezionata}`);
                 if (giorniSelezionatiFerie.includes(dataSelezionata)) {
+                    // Deseleziona
                     giorniSelezionatiFerie = giorniSelezionatiFerie.filter(d => d !== dataSelezionata);
                     el.classList.remove('bg-blue-900', 'border-blue-400', 'ring-4', 'ring-blue-500');
                     if(dataSelezionata === `${annoAttuale}-${String(meseAttuale + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`) {
-                        el.classList.add('bg-grigioScuro', 'border-fluo'); 
+                        el.classList.add('bg-grigioScuro', 'border-fluo'); // Rimette stile oggi
                     } else {
                         el.classList.add('bg-grigioChiaro', 'border-transparent');
                     }
                 } else {
+                    // Seleziona
                     giorniSelezionatiFerie.push(dataSelezionata);
                     el.classList.remove('bg-grigioScuro', 'bg-grigioChiaro', 'border-fluo', 'border-transparent');
                     el.classList.add('bg-blue-900', 'border-blue-400', 'ring-4', 'ring-blue-500');
                 }
                 document.getElementById('contatoreFerie').innerText = giorniSelezionatiFerie.length;
-                return; 
+                return; // Ferma l'esecuzione qui, non apre il dettaglio giornaliero
             }
 
+            // Comportamento Normale
             dataAttualmenteSelezionata = dataSelezionata;
             const partiData = dataSelezionata.split('-');
             const dataBella = `${partiData[2]}/${partiData[1]}/${partiData[0]}`;
@@ -698,6 +665,7 @@
                     let spesaHtml = "-";
                     if (lavoro.spesaImporto && parseFloat(lavoro.spesaImporto) > 0) {
                         spesaHtml = `<span class="text-green-400 font-bold">€ ${parseFloat(lavoro.spesaImporto).toFixed(2)}</span>`;
+                        if (lavoro.spesaFotoFile) spesaHtml += ` <span title="Scontrino Allegato">📸</span>`;
                     }
 
                     let tdAzioni = '';
@@ -724,7 +692,7 @@
             } else { document.getElementById('nessunLavoro').classList.remove('hidden'); }
         }
 
-        // --- FORM E MODAL ---
+        // --- FORM E MODAL (INCLUSE SPESE) ---
         function gestisciCampiForm() {
             const tipo = document.getElementById('inputTipoGiornata').value;
             const bloccoLavoro = document.getElementById('bloccoCampiLavoro');
@@ -779,22 +747,22 @@
 
         function chiudiModalLavoro() { document.getElementById('modalLavoro').classList.add('hidden'); }
 
-        async function eliminaLavoro(id) {
+        function eliminaLavoro(id) {
             if(confirm("Eliminare questa voce?")) {
-                await supabase.from('lavori').delete().eq('id', id);
-                await caricaLavori();
-                creaGriglia(meseAttuale, annoAttuale); 
-                clickGiorno(dataAttualmenteSelezionata);
+                lavoriSalvati = lavoriSalvati.filter(l => l.id !== id);
+                salvaDatiNelBrowser(); creaGriglia(meseAttuale, annoAttuale); clickGiorno(dataAttualmenteSelezionata);
             }
         }
 
-        document.getElementById('formLavoro').addEventListener('submit', async (e) => {
+        document.getElementById('formLavoro').addEventListener('submit', (e) => {
             e.preventDefault();
             const idEsistente = document.getElementById('inputIdNascosto').value;
             const tipoScelto = document.getElementById('inputTipoGiornata').value;
             const noteInserite = document.getElementById('inputNote').value.trim();
             const spesaImporto = document.getElementById('inputSpesaImporto').value;
             const spesaCausale = document.getElementById('inputSpesaCausale').value;
+            const fileInput = document.getElementById('inputSpesaFoto').files[0];
+            const nomeFile = fileInput ? fileInput.name : "";
 
             let utenteCheInserisce = document.getElementById('displayUtenteLoggato').innerText;
             let nomeCantiere = ""; let oreM = 0; let oreP = 0;
@@ -809,24 +777,24 @@
                 if(oreTotaliAssenza === 8) { oreM = 4; oreP = 4; } else { oreM = 4; oreP = 0; }
             }
 
-            const dbRecord = {
+            const nuovoRecord = {
                 id: idEsistente ? parseInt(idEsistente) : Date.now(), 
                 data: document.getElementById('inputDataNascosta').value,
                 dipendente: utenteCheInserisce, 
                 tipo: tipoScelto, cantiere: nomeCantiere,
-                ore_mattina: String(oreM), ore_pomeriggio: String(oreP), note: noteInserite,
-                spesa_importo: spesaImporto, spesa_causale: spesaCausale, spesa_foto_file: ""
+                oreMattina: String(oreM), orePomeriggio: String(oreP), note: noteInserite,
+                spesaImporto: spesaImporto, spesaCausale: spesaCausale, spesaFotoFile: nomeFile
             };
 
-            await supabase.from('lavori').upsert([dbRecord]);
-            await caricaLavori();
+            if (idEsistente) {
+                const index = lavoriSalvati.findIndex(l => l.id === parseInt(idEsistente));
+                lavoriSalvati[index] = nuovoRecord;
+            } else { lavoriSalvati.push(nuovoRecord); }
             
-            chiudiModalLavoro(); 
-            creaGriglia(meseAttuale, annoAttuale); 
-            clickGiorno(dataAttualmenteSelezionata);
+            salvaDatiNelBrowser(); chiudiModalLavoro(); creaGriglia(meseAttuale, annoAttuale); clickGiorno(dataAttualmenteSelezionata);
         });
 
-        // --- EXCEL EXPORT (Intatto e Funzionante) ---
+        // --- EXCEL EXPORT ---
         function esportaMeseMultiplo() {
             const meseScelto = prompt("Inserisci il mese da esportare (YYYY-MM):", getMeseCorrenteString());
             if (!meseScelto) return;
@@ -905,6 +873,8 @@
             XLSX.utils.book_append_sheet(workbook, worksheet, "Tutti i Dati");
             XLSX.writeFile(workbook, `Export_Totale.xlsx`);
         }
+
+        popolaSelectLogin();
     </script>
 </body>
 </html>
