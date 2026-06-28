@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestionale Aziendale - Definitivo</title>
+    <title>Gestionale Aziendale - Cloud Sync</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -16,10 +16,17 @@
         }
     </script>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-grigioScuro text-gray-300 font-sans min-h-screen relative pb-16">
 
-    <div id="schermataLogin" class="fixed inset-0 bg-grigioScuro z-50 flex items-center justify-center p-4">
+    <!-- SCHERMATA CARICAMENTO CLOUD -->
+    <div id="schermataCaricamento" class="fixed inset-0 bg-grigioScuro z-[60] flex flex-col items-center justify-center p-4">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-fluo mb-4"></div>
+        <p class="text-fluo font-bold text-xl animate-pulse">Sincronizzazione col Cloud...</p>
+    </div>
+
+    <div id="schermataLogin" class="fixed inset-0 bg-grigioScuro z-50 flex items-center justify-center p-4 hidden">
         <div class="bg-grigioMedio p-8 rounded-lg shadow-2xl border border-grigioChiaro w-full max-w-md text-center">
             <h1 class="text-4xl font-bold text-fluo mb-2">Gestione<span class="text-white">Azienda</span></h1>
             <p class="text-gray-400 mb-8">Effettua l'accesso per continuare</p>
@@ -42,7 +49,7 @@
     <div id="appContent" class="hidden max-w-6xl mx-auto p-4 md:p-8">
         
         <header class="flex flex-col md:flex-row justify-between items-center mb-8 border-b border-grigioChiaro pb-4 gap-4">
-            <h1 class="text-3xl font-bold text-fluo">Gestione<span class="text-white">Azienda</span></h1>
+            <h1 class="text-3xl font-bold text-fluo">Gestione<span class="text-white">Azienda</span> <span class="text-xs bg-green-900 text-green-300 border border-green-500 px-2 py-0.5 rounded ml-2">☁️ Online</span></h1>
             
             <div class="flex items-center gap-4 bg-grigioMedio p-2 px-4 rounded-lg border border-grigioChiaro">
                 <span class="text-sm text-gray-400">Ciao, <span id="nomeUtenteHeader" class="text-white font-bold text-lg"></span></span>
@@ -269,15 +276,19 @@
     </div>
 
     <script>
-        // --- 1. GESTIONE DATI E AUTENTICAZIONE ---
-        let utentiRegistrati = JSON.parse(localStorage.getItem('utentiRegistrati')) || [
-            { nome: 'admin', pin: 'admin', ruolo: 'admin' },
-            { nome: 'Marco Fabbri', pin: '1234', ruolo: 'dipendente' },
-            { nome: 'Luca Verdi', pin: '1234', ruolo: 'dipendente' }
-        ];
+        // =================================================================
+        // --- INSERISCI QUI SOTTO I TUOI DUE CODICI SUPABASE ---
+        // =================================================================
+        const SUPABASE_URL = 'https://dcxzsnlparofurcszecq.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_Sjp4OseO4V3RyxAleZuABQ_8wkKOHx5';
+        // =================================================================
 
-        let lavoriSalvati = JSON.parse(localStorage.getItem('lavoriSalvati')) || [];
-        let mesiBloccati = JSON.parse(localStorage.getItem('mesiBloccati')) || []; 
+
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let utentiRegistrati = [];
+        let lavoriSalvati = [];
+        let mesiBloccati = []; 
 
         let utenteLoggato = null; 
         let ruoloLoggato = null;
@@ -287,17 +298,64 @@
         let annoAttuale = new Date().getFullYear();
         let dataAttualmenteSelezionata = "";
 
-        // Variabili per la modalità ferie multiple
         let modalitaSelezioneFerie = false;
         let giorniSelezionatiFerie = [];
 
-        function salvaDatiNelBrowser() {
-            localStorage.setItem('utentiRegistrati', JSON.stringify(utentiRegistrati));
-            localStorage.setItem('lavoriSalvati', JSON.stringify(lavoriSalvati));
-            localStorage.setItem('mesiBloccati', JSON.stringify(mesiBloccati));
+        // --- MOTORE DI SALVATAGGIO CLOUD ---
+        async function salvaDatiNelBrowser() {
+            const pacchetto = [
+                { id: 'utenti', content: utentiRegistrati },
+                { id: 'lavori', content: lavoriSalvati },
+                { id: 'blocchi', content: mesiBloccati }
+            ];
+
+            const { error } = await supabaseClient.from('gestionale_dati').upsert(pacchetto);
+
+            if (error) {
+                console.error("Errore salvataggio Supabase:", error);
+                alert("❌ Errore di sincronizzazione col Cloud! Verifica la connessione internet.");
+            }
         }
 
-        // --- SISTEMA DI LOGIN REALE ---
+        // --- AVVIO APP E DOWNLOAD DAL CLOUD ---
+        async function avviaApplicazioneCloud() {
+            const { data, error } = await supabaseClient.from('gestionale_dati').select('*');
+
+            if (error) {
+                document.getElementById('schermataCaricamento').innerHTML = `
+                    <p class="text-red-500 font-bold text-xl mb-2">❌ Errore di connessione</p>
+                    <p class="text-gray-400 text-sm text-center max-w-md">Impossibile contattare Supabase. Controlla di aver incollato correttamente l'URL e la API Key nel codice html.</p>
+                `;
+                return;
+            }
+
+            // Primo avvio assoluto (Tabella su Supabase ancora vuota)
+            if (!data || data.length === 0) {
+                utentiRegistrati = [
+                    { nome: 'admin', pin: 'admin', ruolo: 'admin' },
+                    { nome: 'Marco Fabbri', pin: '1234', ruolo: 'dipendente' },
+                    { nome: 'Luca Verdi', pin: '1234', ruolo: 'dipendente' }
+                ];
+                lavoriSalvati = [];
+                mesiBloccati = [];
+                await salvaDatiNelBrowser(); // Popola il database per la prima volta
+            } else {
+                const rigaU = data.find(r => r.id === 'utenti');
+                const rigaL = data.find(r => r.id === 'lavori');
+                const rigaB = data.find(r => r.id === 'blocchi');
+
+                utentiRegistrati = rigaU ? rigaU.content : [];
+                lavoriSalvati = rigaL ? rigaL.content : [];
+                mesiBloccati = rigaB ? rigaB.content : [];
+            }
+
+            // Tutto pronto: via il caricamento, sblocca il login
+            document.getElementById('schermataCaricamento').classList.add('hidden');
+            document.getElementById('schermataLogin').classList.remove('hidden');
+            popolaSelectLogin();
+        }
+
+        // --- SISTEMA DI LOGIN ---
         function popolaSelectLogin() {
             const select = document.getElementById('loginUtente');
             select.innerHTML = '<option value="" disabled selected>Seleziona chi sei...</option>';
@@ -362,7 +420,6 @@
             }
         }
 
-        // --- GESTIONE ADMIN E FILTRI ---
         function aggiornaListeDipendentiAdmin() {
             const listaUI = document.getElementById('listaDipendentiUI');
             const filtroAdminUI = document.getElementById('filtroDipendenteAdmin');
@@ -390,37 +447,23 @@
             filtroAdminUI.value = filtroSelezionatoAdmin;
         }
 
-        // NUOVA FUNZIONE: Eliminazione Dipendente con Protezione Storico Dati
         function eliminaDipendente(nomeDipendente) {
-            if(!confirm(`Sei sicuro di voler rimuovere definitivamente il dipendente "${nomeDipendente}"?`)) {
-                return;
-            }
+            if(!confirm(`Sei sicuro di voler rimuovere definitivamente il dipendente "${nomeDipendente}"?`)) return;
 
-            // Verifica se questo dipendente ha delle ore salvate nel database
             const haDatiRegistrati = lavoriSalvati.some(lav => lav.dipendente === nomeDipendente);
 
             if (haDatiRegistrati) {
                 const cancellaStorico = confirm(`ATTENZIONE: ${nomeDipendente} ha delle ore o ferie registrate in archivio.\n\nPremi "OK" per CANCELLARE ANCHE TUTTE LE SUE ORE dal database.\nPremi "ANNULLA" per eliminare solo l'utente e mantenere i suoi dati passati nei report Excel.`);
-                
-                if (cancellaStorico) {
-                    lavoriSalvati = lavoriSalvati.filter(lav => lav.dipendente !== nomeDipendente);
-                }
+                if (cancellaStorico) lavoriSalvati = lavoriSalvati.filter(lav => lav.dipendente !== nomeDipendente);
             }
 
-            // Rimuove dai dipendenti
             utentiRegistrati = utentiRegistrati.filter(u => u.nome !== nomeDipendente);
-            
-            // Se l'Admin stava filtrando sul dipendente appena rimosso, ripristina a "Tutti"
-            if (filtroSelezionatoAdmin === nomeDipendente) {
-                filtroSelezionatoAdmin = "tutti";
-            }
+            if (filtroSelezionatoAdmin === nomeDipendente) filtroSelezionatoAdmin = "tutti";
 
             salvaDatiNelBrowser();
             aggiornaListeDipendentiAdmin();
             popolaSelectLogin();
             creaGriglia(meseAttuale, annoAttuale);
-            
-            // Chiude il dettaglio giorno aperto sotto, se visibile
             document.getElementById('sezioneLavoriGiorno').classList.add('hidden');
         }
 
@@ -441,7 +484,6 @@
             document.getElementById('sezioneLavoriGiorno').classList.add('hidden');
         }
 
-        // --- BLOCCO MESE ---
         function getMeseCorrenteString() { return `${annoAttuale}-${String(meseAttuale + 1).padStart(2, '0')}`; }
         function isMeseBloccato() { return mesiBloccati.includes(getMeseCorrenteString()); }
 
@@ -470,7 +512,6 @@
             else avviso.classList.add('hidden');
         }
 
-        // --- PROGRAMMAZIONE FERIE MULTIPLA ---
         function attivaProgrammazioneFerie() {
             modalitaSelezioneFerie = true;
             giorniSelezionatiFerie = [];
@@ -494,9 +535,7 @@
             document.getElementById('inputDipendenteFerieMulti').value = "";
         }
 
-        function chiudiModalFerieMulti() {
-            document.getElementById('modalFerieMulti').classList.add('hidden');
-        }
+        function chiudiModalFerieMulti() { document.getElementById('modalFerieMulti').classList.add('hidden'); }
 
         document.getElementById('formFerieMulti').addEventListener('submit', (e) => {
             e.preventDefault();
@@ -504,28 +543,19 @@
             if(!dipendenteScelto) return;
 
             giorniSelezionatiFerie.forEach((dataSelezionata, index) => {
-                const nuovoRecord = {
-                    id: Date.now() + index + Math.floor(Math.random() * 1000), // ID univoco
-                    data: dataSelezionata,
-                    dipendente: dipendenteScelto,
-                    tipo: 'ferie',
-                    cantiere: '🌴 Ferie Programmate',
-                    oreMattina: "4",
-                    orePomeriggio: "4",
-                    note: "Inserimento batch admin",
-                    spesaImporto: "", spesaCausale: "", spesaFotoFile: ""
-                };
-                lavoriSalvati.push(nuovoRecord);
+                lavoriSalvati.push({
+                    id: Date.now() + index + Math.floor(Math.random() * 1000),
+                    data: dataSelezionata, dipendente: dipendenteScelto, tipo: 'ferie',
+                    cantiere: '🌴 Ferie Programmate', oreMattina: "4", orePomeriggio: "4",
+                    note: "Inserimento batch admin", spesaImporto: "", spesaCausale: "", spesaFotoFile: ""
+                });
             });
 
             salvaDatiNelBrowser();
-            chiudiModalFerieMulti();
-            annullaProgrammazioneFerie(); 
-            creaGriglia(meseAttuale, annoAttuale);
+            chiudiModalFerieMulti(); annullaProgrammazioneFerie(); creaGriglia(meseAttuale, annoAttuale);
             alert(`Ferie assegnate con successo a ${dipendenteScelto} per ${giorniSelezionatiFerie.length} giorni.`);
         });
 
-        // --- CALENDARIO E GRIGLIA ---
         function controllaGiornoRosso(giorno, mese, anno) {
             const dateStr = `${String(mese).padStart(2,'0')}-${String(giorno).padStart(2,'0')}`;
             const fisse = ['01-01', '01-06', '04-25', '05-01', '06-02', '08-15', '11-01', '12-08', '12-25', '12-26'];
@@ -636,7 +666,6 @@
             creaGriglia(meseAttuale, annoAttuale);
         }
 
-        // --- CLICK SUL GIORNO E TABELLA ---
         function clickGiorno(dataSelezionata) {
             if (modalitaSelezioneFerie) {
                 const el = document.getElementById(`giorno-${dataSelezionata}`);
@@ -645,9 +674,7 @@
                     el.classList.remove('bg-blue-900', 'border-blue-400', 'ring-4', 'ring-blue-500');
                     if(dataSelezionata === `${annoAttuale}-${String(meseAttuale + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`) {
                         el.classList.add('bg-grigioScuro', 'border-fluo'); 
-                    } else {
-                        el.classList.add('bg-grigioChiaro', 'border-transparent');
-                    }
+                    } else { el.classList.add('bg-grigioChiaro', 'border-transparent'); }
                 } else {
                     giorniSelezionatiFerie.push(dataSelezionata);
                     el.classList.remove('bg-grigioScuro', 'bg-grigioChiaro', 'border-fluo', 'border-transparent');
@@ -670,9 +697,7 @@
 
             if (bloccato && ruoloLoggato !== 'admin') {
                 btnAggiungi.classList.add('hidden'); colonnaAzioni.classList.add('hidden');
-            } else {
-                btnAggiungi.classList.remove('hidden'); colonnaAzioni.classList.remove('hidden');
-            }
+            } else { btnAggiungi.classList.remove('hidden'); colonnaAzioni.classList.remove('hidden'); }
             
             let dipendenteTarget = (ruoloLoggato === 'admin') ? filtroSelezionatoAdmin : utenteLoggato;
 
@@ -702,7 +727,7 @@
                     let spesaHtml = "-";
                     if (lavoro.spesaImporto && parseFloat(lavoro.spesaImporto) > 0) {
                         spesaHtml = `<span class="text-green-400 font-bold">€ ${parseFloat(lavoro.spesaImporto).toFixed(2)}</span>`;
-                        if (lavoro.spesaFotoFile) spesaHtml += ` <span title="Scontrino Allegato">📸</span>`;
+                        if (lavoro.spesaFotoFile) spesaHtml += ` 📸`;
                     }
 
                     let tdAzioni = '';
@@ -729,7 +754,6 @@
             } else { document.getElementById('nessunLavoro').classList.remove('hidden'); }
         }
 
-        // --- FORM E MODAL ---
         function gestisciCampiForm() {
             const tipo = document.getElementById('inputTipoGiornata').value;
             const bloccoLavoro = document.getElementById('bloccoCampiLavoro');
@@ -817,8 +841,7 @@
             const nuovoRecord = {
                 id: idEsistente ? parseInt(idEsistente) : Date.now(), 
                 data: document.getElementById('inputDataNascosta').value,
-                dipendente: utenteCheInserisce, 
-                tipo: tipoScelto, cantiere: nomeCantiere,
+                dipendente: utenteCheInserisce, tipo: tipoScelto, cantiere: nomeCantiere,
                 oreMattina: String(oreM), orePomeriggio: String(oreP), note: noteInserite,
                 spesaImporto: spesaImporto, spesaCausale: spesaCausale, spesaFotoFile: nomeFile
             };
@@ -831,26 +854,22 @@
             salvaDatiNelBrowser(); chiudiModalLavoro(); creaGriglia(meseAttuale, annoAttuale); clickGiorno(dataAttualmenteSelezionata);
         });
 
-        // --- EXCEL EXPORT ---
         function esportaMeseMultiplo() {
             const meseScelto = prompt("Inserisci il mese da esportare (YYYY-MM):", getMeseCorrenteString());
             if (!meseScelto) return;
-            
             const [anno, meseStr] = meseScelto.split('-');
             const indiceMese = parseInt(meseStr) - 1;
             const nomeMese = document.querySelector(`#meseSelect option[value="${indiceMese}"]`).innerText;
             const giorniNelMese = new Date(anno, indiceMese + 1, 0).getDate();
             const workbook = XLSX.utils.book_new();
-            
             const dipendenti = utentiRegistrati.filter(u => u.ruolo !== 'admin').map(u => u.nome);
 
             dipendenti.forEach(dipendenteCorrente => {
-                let righeExcel = [];
-                righeExcel.push([`TIMESHEET: ${dipendenteCorrente.toUpperCase()}`]);
-                righeExcel.push([`MESE: ${nomeMese.toUpperCase()} ${anno}`]);
-                righeExcel.push([]); 
-                righeExcel.push(["Giorno", "Stato / Cantiere", "Ore Tot", "Note", "Importo Spese (€)", "Causale Spese"]);
-
+                let righeExcel = [
+                    [`TIMESHEET: ${dipendenteCorrente.toUpperCase()}`],
+                    [`MESE: ${nomeMese.toUpperCase()} ${anno}`], [],
+                    ["Giorno", "Stato / Cantiere", "Ore Tot", "Note", "Importo Spese (€)", "Causale Spese"]
+                ];
                 let totaleMese = 0; let totaleSpeseMese = 0;
                 let totaleSettimana = 0; let totaleSpeseSettimana = 0; 
 
@@ -858,7 +877,6 @@
                     const dataCorrente = `${anno}-${meseStr}-${String(g).padStart(2, '0')}`;
                     const dataOggetto = new Date(anno, indiceMese, g);
                     const giornoDellaSettimana = dataOggetto.getDay(); 
-                    
                     const tipoGiornoRosso = controllaGiornoRosso(g, indiceMese + 1, anno);
                     let labelGiorno = g; if(tipoGiornoRosso) labelGiorno = `🔴 ${g} (${tipoGiornoRosso})`;
 
@@ -869,10 +887,8 @@
                         const cantieri = lavoriDelGiorno.map(l => l.cantiere).join(' + ');
                         const noteAgg = lavoriDelGiorno.map(l => l.note).filter(n => n).join(' | ');
                         const causali = lavoriDelGiorno.map(l => l.spesaCausale).filter(c => c).join(' + ');
-                        
                         totaleGiornaliero = lavoriDelGiorno.reduce((acc, l) => acc + parseFloat(l.oreMattina || 0) + parseFloat(l.orePomeriggio || 0), 0);
                         speseGiornaliere = lavoriDelGiorno.reduce((acc, l) => acc + parseFloat(l.spesaImporto || 0), 0);
-                        
                         righeExcel.push([labelGiorno, cantieri, totaleGiornaliero, noteAgg, speseGiornaliere || "", causali]);
                     } else { righeExcel.push([labelGiorno, "", 0, "", "", ""]); }
                     
@@ -881,11 +897,9 @@
 
                     if (giornoDellaSettimana === 0 || g === giorniNelMese) {
                         righeExcel.push(["", "SUBTOTALE SETTIMANA:", totaleSettimana, "", totaleSpeseSettimana || 0, ""]);
-                        righeExcel.push([]); 
-                        totaleSettimana = 0; totaleSpeseSettimana = 0; 
+                        righeExcel.push([]); totaleSettimana = 0; totaleSpeseSettimana = 0; 
                     }
                 }
-                
                 righeExcel.push(["", "TOTALE MESE COMPLESSIVO:", totaleMese, "", totaleSpeseMese, ""]);
                 const worksheet = XLSX.utils.aoa_to_sheet(righeExcel);
                 XLSX.utils.book_append_sheet(workbook, worksheet, dipendenteCorrente.substring(0, 31));
@@ -898,9 +912,8 @@
             const datiFormattati = lavoriSalvati.map(l => {
                 const [anno, mese, giorno] = l.data.split('-');
                 return {
-                    "Anno": anno, "Mese": mese, "Giorno": giorno,
-                    "Dipendente": l.dipendente, "Tipologia": l.tipo.toUpperCase(), 
-                    "Dettaglio / Cantiere": l.cantiere, "Note": l.note || "",
+                    "Anno": anno, "Mese": mese, "Giorno": giorno, "Dipendente": l.dipendente,
+                    "Tipologia": l.tipo.toUpperCase(), "Dettaglio / Cantiere": l.cantiere, "Note": l.note || "",
                     "Ore Totali": parseFloat(l.oreMattina) + parseFloat(l.orePomeriggio),
                     "Importo Spese (€)": parseFloat(l.spesaImporto || 0), "Causale Spesa": l.spesaCausale || ""
                 };
@@ -911,7 +924,9 @@
             XLSX.writeFile(workbook, `Export_Totale.xlsx`);
         }
 
-        popolaSelectLogin();
+        // Lancio del motore cloud all'avvio
+        avviaApplicazioneCloud();
+
     </script>
 </body>
 </html>
