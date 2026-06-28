@@ -52,13 +52,13 @@
 
         <section id="pannelloAdmin" class="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6 bg-grigioMedio p-6 rounded-lg border border-grigioChiaro shadow-lg hidden">
             <div>
-                <h2 class="text-xl font-bold text-white mb-4">👥 Nuovo Dipendente</h2>
+                <h2 class="text-xl font-bold text-white mb-4">👥 Gestione Dipendenti</h2>
                 <form id="formDipendente" class="flex gap-2 mb-4">
                     <input type="text" id="inputNuovoDipendente" placeholder="Nome Cognome" required class="flex-1 bg-grigioScuro border border-grigioChiaro rounded p-2 text-white focus:outline-none focus:border-fluo">
                     <input type="text" id="inputNuovoPin" placeholder="PIN" required class="w-24 bg-grigioScuro border border-grigioChiaro rounded p-2 text-white focus:outline-none focus:border-fluo text-center">
                     <button type="submit" class="bg-fluo text-black font-bold px-4 py-2 rounded hover:bg-lime-400 transition">+</button>
                 </form>
-                <div class="max-h-32 overflow-y-auto">
+                <div class="max-h-36 overflow-y-auto pr-1">
                     <ul id="listaDipendentiUI" class="space-y-2 text-sm"></ul>
                 </div>
             </div>
@@ -375,11 +375,53 @@
             let dipendenti = utentiRegistrati.filter(u => u.ruolo !== 'admin');
 
             dipendenti.forEach(dip => {
-                listaUI.innerHTML += `<li class="flex justify-between items-center bg-grigioScuro p-2 rounded border border-grigioChiaro"><span>👤 ${dip.nome}</span> <span class="text-gray-500 text-xs">PIN: ${dip.pin}</span></li>`;
+                listaUI.innerHTML += `
+                    <li class="flex justify-between items-center bg-grigioScuro p-2.5 rounded border border-grigioChiaro">
+                        <div>
+                            <span class="text-white font-semibold">👤 ${dip.nome}</span>
+                            <span class="text-gray-500 text-xs ml-2">PIN: ${dip.pin}</span>
+                        </div>
+                        <button onclick="eliminaDipendente('${dip.nome}')" title="Elimina Dipendente" class="text-gray-500 hover:text-red-500 transition px-2 font-bold text-base">🗑️</button>
+                    </li>
+                `;
                 filtroAdminUI.innerHTML += `<option value="${dip.nome}">🔍 Filtra su: ${dip.nome}</option>`;
                 selectFerieMulti.innerHTML += `<option value="${dip.nome}">${dip.nome}</option>`;
             });
             filtroAdminUI.value = filtroSelezionatoAdmin;
+        }
+
+        // NUOVA FUNZIONE: Eliminazione Dipendente con Protezione Storico Dati
+        function eliminaDipendente(nomeDipendente) {
+            if(!confirm(`Sei sicuro di voler rimuovere definitivamente il dipendente "${nomeDipendente}"?`)) {
+                return;
+            }
+
+            // Verifica se questo dipendente ha delle ore salvate nel database
+            const haDatiRegistrati = lavoriSalvati.some(lav => lav.dipendente === nomeDipendente);
+
+            if (haDatiRegistrati) {
+                const cancellaStorico = confirm(`ATTENZIONE: ${nomeDipendente} ha delle ore o ferie registrate in archivio.\n\nPremi "OK" per CANCELLARE ANCHE TUTTE LE SUE ORE dal database.\nPremi "ANNULLA" per eliminare solo l'utente e mantenere i suoi dati passati nei report Excel.`);
+                
+                if (cancellaStorico) {
+                    lavoriSalvati = lavoriSalvati.filter(lav => lav.dipendente !== nomeDipendente);
+                }
+            }
+
+            // Rimuove dai dipendenti
+            utentiRegistrati = utentiRegistrati.filter(u => u.nome !== nomeDipendente);
+            
+            // Se l'Admin stava filtrando sul dipendente appena rimosso, ripristina a "Tutti"
+            if (filtroSelezionatoAdmin === nomeDipendente) {
+                filtroSelezionatoAdmin = "tutti";
+            }
+
+            salvaDatiNelBrowser();
+            aggiornaListeDipendentiAdmin();
+            popolaSelectLogin();
+            creaGriglia(meseAttuale, annoAttuale);
+            
+            // Chiude il dettaglio giorno aperto sotto, se visibile
+            document.getElementById('sezioneLavoriGiorno').classList.add('hidden');
         }
 
         document.getElementById('formDipendente').addEventListener('submit', (e) => {
@@ -567,7 +609,6 @@
 
                 let classiGiorno = `p-3 rounded-lg cursor-pointer transition flex flex-col items-center justify-center border-2 `;
                 
-                // Gestione Visiva Modalità Selezione Ferie Multipla
                 if (modalitaSelezioneFerie && giorniSelezionatiFerie.includes(dataCicloString)) {
                     classiGiorno += `bg-blue-900 border-blue-400 ring-4 ring-blue-500 `;
                 } else {
@@ -597,29 +638,25 @@
 
         // --- CLICK SUL GIORNO E TABELLA ---
         function clickGiorno(dataSelezionata) {
-            // Se siamo in modalità selezione ferie, intercettiamo il click
             if (modalitaSelezioneFerie) {
                 const el = document.getElementById(`giorno-${dataSelezionata}`);
                 if (giorniSelezionatiFerie.includes(dataSelezionata)) {
-                    // Deseleziona
                     giorniSelezionatiFerie = giorniSelezionatiFerie.filter(d => d !== dataSelezionata);
                     el.classList.remove('bg-blue-900', 'border-blue-400', 'ring-4', 'ring-blue-500');
                     if(dataSelezionata === `${annoAttuale}-${String(meseAttuale + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`) {
-                        el.classList.add('bg-grigioScuro', 'border-fluo'); // Rimette stile oggi
+                        el.classList.add('bg-grigioScuro', 'border-fluo'); 
                     } else {
                         el.classList.add('bg-grigioChiaro', 'border-transparent');
                     }
                 } else {
-                    // Seleziona
                     giorniSelezionatiFerie.push(dataSelezionata);
                     el.classList.remove('bg-grigioScuro', 'bg-grigioChiaro', 'border-fluo', 'border-transparent');
                     el.classList.add('bg-blue-900', 'border-blue-400', 'ring-4', 'ring-blue-500');
                 }
                 document.getElementById('contatoreFerie').innerText = giorniSelezionatiFerie.length;
-                return; // Ferma l'esecuzione qui, non apre il dettaglio giornaliero
+                return; 
             }
 
-            // Comportamento Normale
             dataAttualmenteSelezionata = dataSelezionata;
             const partiData = dataSelezionata.split('-');
             const dataBella = `${partiData[2]}/${partiData[1]}/${partiData[0]}`;
@@ -692,7 +729,7 @@
             } else { document.getElementById('nessunLavoro').classList.remove('hidden'); }
         }
 
-        // --- FORM E MODAL (INCLUSE SPESE) ---
+        // --- FORM E MODAL ---
         function gestisciCampiForm() {
             const tipo = document.getElementById('inputTipoGiornata').value;
             const bloccoLavoro = document.getElementById('bloccoCampiLavoro');
